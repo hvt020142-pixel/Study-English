@@ -74,7 +74,7 @@ jobs:
       - name: Tổng hợp giọng nói (Silero v3_en, en_0)
         run: |
           python - <<'PY'
-          import torch, torchaudio, re, pathlib
+          import torch, re, pathlib, wave
           torch.set_num_threads(2)
           model, _ = torch.hub.load('snakers4/silero-models', 'silero_tts',
                                     language='en', speaker='v3_en', trust_repo=True)
@@ -120,7 +120,15 @@ jobs:
                   audios.append(a)
           if not audios:
               raise SystemExit("Không tạo được audio từ bất kỳ đoạn nào.")
-          torchaudio.save('out.wav', torch.cat(audios).unsqueeze(0), SR)
+          # Write a plain 16-bit PCM mono WAV via the stdlib (no torchaudio /
+          # torchcodec backend needed); ffmpeg converts it to MP3 next.
+          wav = torch.cat(audios).clamp(-1.0, 1.0)
+          pcm = (wav * 32767.0).to(torch.int16).numpy().tobytes()
+          with wave.open('out.wav', 'wb') as w:
+              w.setnchannels(1)
+              w.setsampwidth(2)
+              w.setframerate(SR)
+              w.writeframes(pcm)
           print(f"Đã tạo out.wav từ {len(audios)} đoạn.")
           PY
 
