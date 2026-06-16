@@ -80,20 +80,48 @@ jobs:
                                     language='en', speaker='v3_en', trust_repo=True)
           text = pathlib.Path('tts.txt').read_text(encoding='utf-8')
           sents = re.split(r'(?<=[.!?…])\s+|\n', text)
+          # Silero v3 caps its positional encoding at ~5000 frames, so keep
+          # chunks small (≈500 chars) to stay well under that limit.
           chunks, cur = [], ''
           for s in sents:
               s = s.strip()
               if not s: continue
-              if len(cur) + len(s) < 900:
+              if len(cur) + len(s) < 500:
                   cur = (cur + ' ' + s).strip()
               else:
-                  chunks.append(cur); cur = s
+                  if cur: chunks.append(cur)
+                  cur = s
           if cur: chunks.append(cur)
-          SR, audios = 48000, []
+          SR = 48000
+
+          def synth(txt, depth=0):
+              txt = txt.strip()
+              if not txt:
+                  return None
+              try:
+                  return model.apply_tts(text=txt + ' .', speaker='en_0', sample_rate=SR)
+              except Exception as e:
+                  # Too long for the model: split near the middle and retry.
+                  if depth > 6 or ' ' not in txt:
+                      print(f"Bỏ qua đoạn không đọc được: {e}")
+                      return None
+                  mid = len(txt) // 2
+                  cut = txt.rfind(' ', 0, mid)
+                  if cut <= 0:
+                      cut = mid
+                  parts = [p for p in (synth(txt[:cut], depth + 1),
+                                       synth(txt[cut:], depth + 1)) if p is not None]
+                  return torch.cat(parts) if parts else None
+
+          audios = []
           for ch in chunks:
-              audios.append(model.apply_tts(text=ch + ' .', speaker='en_0', sample_rate=SR))
+              a = synth(ch)
+              if a is not None:
+                  audios.append(a)
+          if not audios:
+              raise SystemExit("Không tạo được audio từ bất kỳ đoạn nào.")
           torchaudio.save('out.wav', torch.cat(audios).unsqueeze(0), SR)
-          print("Đã tạo out.wav")
+          print(f"Đã tạo out.wav từ {len(audios)} đoạn.")
           PY
 
       - name: Chuyển sang MP3
