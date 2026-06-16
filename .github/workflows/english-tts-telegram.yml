@@ -50,6 +50,8 @@ jobs:
 
       - name: Cài PyTorch CPU + deps
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
           pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
           pip install omegaconf numpy
 
